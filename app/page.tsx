@@ -30,8 +30,33 @@ const DEFAULT_LANGS: Lang[] = [
   { code: "ar", label: "العربية", enabled: false },
 ];
 
+// Diccionario simple de sugerencias (MVP).
+// Lo podés ampliar cuando quieras.
+const SUGGESTIONS: Record<string, string[]> = {
+  // roles
+  developer: ["software engineer", "programmer", "full stack", "backend", "frontend"],
+  engineer: ["software engineer", "data engineer", "platform engineer", "devops"],
+  designer: ["product designer", "ux", "ui", "ux/ui", "visual designer"],
+  "product designer": ["ux", "ui", "interaction design", "ux research"],
+  marketer: ["marketing", "growth", "performance marketing", "brand"],
+  marketing: ["growth", "performance marketing", "demand generation", "brand"],
+  // skills
+  data: ["analytics", "business intelligence", "sql", "python", "dashboards"],
+  analytics: ["data analysis", "metrics", "tracking", "dashboard"],
+  sql: ["postgres", "mysql", "bigquery", "snowflake"],
+  python: ["pandas", "data science", "automation"],
+  // hiring/search patterns
+  remote: ["hybrid", "on-site", "distributed team"],
+  "project management": ["agile", "scrum", "program management", "product operations"],
+  osint: ["open source intelligence", "social listening", "investigation"],
+};
+
 function uid() {
   return Math.random().toString(16).slice(2) + Date.now().toString(16);
+}
+
+function normalize(s: string) {
+  return s.trim().toLowerCase();
 }
 
 function Chip({
@@ -55,6 +80,25 @@ function Chip({
       ].join(" ")}
     >
       {label}
+    </button>
+  );
+}
+
+function SuggestionBubble({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm text-neutral-700 hover:bg-neutral-50"
+      title="Agregar a la query"
+    >
+      + {label}
     </button>
   );
 }
@@ -92,11 +136,8 @@ function buildBooleanQuery(tokens: Token[]) {
     const t = tokens[i];
     const term = t.isPhrase ? `"${t.term}"` : t.term;
 
-    if (i === 0) {
-      parts.push(term);
-    } else {
-      parts.push(`${t.operator} ${term}`);
-    }
+    if (i === 0) parts.push(term);
+    else parts.push(`${t.operator} ${term}`);
   }
   return parts.join(" ");
 }
@@ -127,8 +168,33 @@ export default function Page() {
 
   const booleanQuery = useMemo(() => buildBooleanQuery(tokens), [tokens]);
 
-  const addToken = () => {
-    const cleaned = term.trim();
+  // Suggestions based on current input (and last tokens)
+  const suggestions = useMemo(() => {
+    const input = normalize(term);
+    if (!input) return [];
+
+    // Try exact match first
+    const exact = SUGGESTIONS[input] ?? [];
+
+    // Also try partial key match (simple contains)
+    const partialKeys = Object.keys(SUGGESTIONS).filter(
+      (k) => k.includes(input) || input.includes(k)
+    );
+    const partial = partialKeys.flatMap((k) => SUGGESTIONS[k]);
+
+    // De-dupe and remove items already in tokens
+    const existing = new Set(tokens.map((t) => normalize(t.term)));
+    const merged = [...exact, ...partial]
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((s) => !existing.has(normalize(s)));
+
+    // unique
+    return Array.from(new Set(merged)).slice(0, 10);
+  }, [term, tokens]);
+
+  const addToken = (value?: string) => {
+    const cleaned = (value ?? term).trim();
     if (!cleaned) return;
 
     const next: Token = {
@@ -150,10 +216,7 @@ export default function Page() {
     }
   };
 
-  const removeToken = (id: string) => {
-    setTokens((prev) => prev.filter((t) => t.id !== id));
-  };
-
+  const removeToken = (id: string) => setTokens((prev) => prev.filter((t) => t.id !== id));
   const clearTokens = () => setTokens([]);
 
   return (
@@ -203,7 +266,7 @@ export default function Page() {
           </div>
         </section>
 
-        {/* Input bar */}
+        {/* Input bar + suggestions */}
         <section className="mt-6 rounded-2xl border bg-neutral-50/60 p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center">
             <div className="flex items-center gap-2">
@@ -229,7 +292,7 @@ export default function Page() {
               />
               <button
                 type="button"
-                onClick={addToken}
+                onClick={() => addToken()}
                 className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
               >
                 Agregar
@@ -252,6 +315,21 @@ export default function Page() {
             >
               Limpiar
             </button>
+          </div>
+
+          {/* Suggestion bubbles */}
+          <div className="mt-3">
+            {term.trim() && suggestions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {suggestions.map((s) => (
+                  <SuggestionBubble key={s} label={s} onClick={() => addToken(s)} />
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-neutral-500">
+                Escribí algo para ver sugerencias.
+              </div>
+            )}
           </div>
 
           {/* Tokens row */}
@@ -300,8 +378,7 @@ export default function Page() {
           <div className="rounded-2xl border bg-emerald-50/40 p-4">
             <div className="text-sm font-medium">Sugerencia IA</div>
             <div className="mt-2 text-sm text-neutral-600">
-              (En el próximo paso conectamos el endpoint de IA. Por ahora: tu
-              query está perfecta 😉)
+              (Próximo paso: conectamos IA para mejorar la query o decirte “Tu query está perfecta!”.)
             </div>
           </div>
         </section>
